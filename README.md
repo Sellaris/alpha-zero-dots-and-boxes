@@ -1,11 +1,17 @@
 # AlphaSela：AlphaZero Algorithm for Dots and Boxes
 
 
-Based on the original AlphaZero/ResNet architecture, our main innovations are:**(1) Nested Bottleneck Residual Blocks (NBR)**; **(2) Global Pooling Bias**; **(3) Residual Blocks Post-connecting SE Attention Mechanism (Squeeze-and-Excitation)**.
+Based on the original AlphaZero/ResNet architecture, our main innovations are:
+
+**(1) Nested Bottleneck Residual Blocks (NBR)**; 
+
+**(2) Global Pooling Bias**; 
+
+**(3) Residual Blocks Post-connecting SE Attention Mechanism (Squeeze-and-Excitation)**.
 
 ## Nested Bottleneck Residual Block (NBR)
 
-Nested Bottleneck structure that is, in the traditional ResNet bottleneck block, the number of channels is first compressed by half with 1×1 convolution, then the features are extracted with 3×3 convolution, and finally the 1×1 convolution is restored to the original number of channels, which significantly reduces the number of parameters and computation, while preserving the network depth and capacity .
+From Katago, Nested Bottleneck structure that is, in the traditional ResNet bottleneck block, the number of channels is first compressed by half with 1×1 convolution, then the features are extracted with 3×3 convolution, and finally the 1×1 convolution is restored to the original number of channels, which significantly reduces the number of parameters and computation, while preserving the network depth and capacity .
 
 * **Compression-Expansion Idea**: 1×1→3×3→1×1 framework, which makes the intermediate main convolution process only fewer channels and reduce FLOPs, especially suitable for deeper networks.
 * **Nested Calling**: This “compression-expansion” pattern is applied inside each residual block to further compress the information flow and strengthen the feature learning; it echoes the “bottomleneck” in the original text, which aims to balance the depth and width.
@@ -15,9 +21,9 @@ Nested Bottleneck structure that is, in the traditional ResNet bottleneck block,
 
 This module is inserted after every three residual blocks to inject global plate information into the local convolutional features and enhance the model's perception of the overall situation.
 
-* **Calculation**: do global average, maximum, and other kinds of pooling for certain channel groups to get a statistic of length 3-c, then FC map back to the main channel number and sum by channel bias ([arXiv][9], [ar5iv][10]).
+* **Calculation**: do global average, maximum, and other kinds of pooling for certain channel groups to get a statistic of length 3-c, then FC map back to the main channel number and sum by channel bias .
 * **Source of Usage**: this structure is proposed in the KataGo paper and is only used in several blocks (e.g., blocks 3, 6, and 9), which significantly improves the performance of the strategy and value in the later stages of training.
-* **Functional effect**: Local convolution is essentially a finite sense field, which makes it difficult to capture non-local tactics (e.g., “hijacking” in Go). Adding a global pooling bias helps the model adaptively adjust its local judgments in the presence of macro information such as different score differentials and number of remaining edges.
+* **Functional effect**: Local convolution is essentially a finite sense field, which makes it difficult to capture non-local tactics (e.g., “hijacking” in Go , "Global Strategy" or "Long Term Strategy" in this Game). Adding a global pooling bias helps the model adaptively adjust its local judgments in the presence of macro information such as different score differentials and number of remaining edges.
 
 ## Add SE attention (Squeeze-and-Excitation) after each residual block.
 
@@ -27,7 +33,6 @@ The SE block further strengthens the usefulness of the local feature channel thr
 * **Excitation stage**: two-layer 1×1 mapping first downscaling (ratio) and then upscaling, and finally Sigmoid to generate channel weights `[0,1]`.
 * **Scale application**: Multiply the generated attention weights by channel with the original features element by element, dynamically amplify the response for key channels, suppress redundant noise, and improve the quality of feature expression.
 
-Translated with DeepL.com (free version)
 
 
 # Based on "AlphaZero: Dots and Boxes"
