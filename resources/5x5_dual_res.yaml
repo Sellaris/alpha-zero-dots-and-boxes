@@ -14,14 +14,16 @@ mcts_parameters:
 # neural network parameters
 model_parameters:
   name: "DualRes"
-  blocks:  # convolutional block and residual blocks
-    residual_blocks : 6
-    channels        : 128
-    conv_kernel_size: 3
-    res_kernel_size : 3
+  blocks:  
+    residual_blocks : 6     # 残差块总数（含SE块）
+    channels        : 128   # 主干通道数
+    bottleneck_channels: 32 # 瓶颈通道数（默认为主通道数的1/4）
+    se_ratio        : 0.25  # SE块压缩比
+    res_kernel_size : 3     # 残差块卷积核大小
+    conv_kernel_size: 3     # 初始卷积核大小
     stride          : 1
     padding         : "same"
-  heads:  # policy and value head
+  heads: 
     policy_head_channels: 4
     value_head_channels : 2
     heads_kernel_size   : 1
