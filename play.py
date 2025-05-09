@@ -18,13 +18,15 @@ parser.add_argument('-cp', '--checkpoint', type=str,
                     help='In case of AlphaZero as opponent: Model checkpoint (i.e., name of folder containing config and model).')
 parser.add_argument('-d', '--depth', type=int, default=3,
                     help='In case of Alpha–beta pruning as opponent: Specifies the search depth')
+parser.add_argument('-f', '--first', type=int, default=1,
+                    help='Fisrt==1 The AI plays First, First==0 The human player plays first. Default: 1')
 args = parser.parse_args()
 
 
 def cls(): os.system("cls" if os.name == "nt" else "clear")
 
 
-def main(size: int, opponent: AIPlayer):
+def main(size: int, opponent: AIPlayer, AI_First: int):
     cls()
 
     opponent_name = "Opponent" if opponent is None else opponent.name
@@ -33,6 +35,8 @@ def main(size: int, opponent: AIPlayer):
     print(game.state_string())
     print(game.board_string())
 
+    if(AI_First == 1):
+        game.current_player = 0
     while game.is_running():
 
         if game.current_player == 1 or opponent is None:
@@ -123,7 +127,5 @@ if __name__ == '__main__':
             mcts_parameters=config["mcts_parameters"],
             device="cpu"
         )
-
-
-
-    main(game_size, opponent)
+        
+    main(game_size, opponent, args.first)
