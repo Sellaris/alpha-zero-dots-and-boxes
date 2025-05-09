@@ -11,8 +11,18 @@ from src.model.neural_network import AZNeuralNetwork
 
 class SEBlock(nn.Module):
     """
-    Squeeze-and-Excitation Block 实现
-    通过自适应池化和门控机制调整通道权重，增强重要特征通道
+    1. SE 块（Squeeze-and-Excitation）原理：通道注意力
+    1.1 Squeeze（压缩）
+    对每个通道做全局平均池化，将 [B,C,H,W] 映射为 [B,C,1,1]，得到通道描述符。
+    这一步让模型获得全局上下文，使其“看到”整张特征图的信息 
+
+    1.2 Excitation（激励）
+    将通道描述符通过两层 1×1 卷积（或等价的全连接），先降维到 reduced_channels = max(1, int(C·ratio))，再升回原始通道数。
+    两次线性映射之间通常插入 ReLU，最后用 Sigmoid 将输出范围归一到 [0,1]，即为每个通道的注意力权重 
+
+    1.3 Scale（重标）
+    将原始特征图按通道乘以上一步得到的权重系数，完成特征重标定。
+    这一操作能够让网络“关注”更重要的通道，抑制无关或噪声特征 
     """
     def __init__(self, channels, ratio=0.25):
         """
