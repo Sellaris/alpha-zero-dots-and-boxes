@@ -1,6 +1,6 @@
 # general parameters
 game_size : 5       # board size
-n_iterations: 1000  # total number of iterations of mcts + training + model comparison (AlphaGo Zero: 200)
+n_iterations: 200  # total number of iterations of mcts + training + model comparison (AlphaGo Zero: 200)
 
 # MCTS parameters (INFO: 3x3 Dots-and-Boxes offers 24 valid moves, 19x19 GO offers 362 valid moves)
 mcts_parameters:
@@ -15,22 +15,22 @@ mcts_parameters:
 model_parameters:
   name: "DualRes"
   blocks:  # convolutional block and residual blocks
-    residual_blocks : 4
-    channels        : 64
+    residual_blocks : 8
+    channels        : 128
     conv_kernel_size: 3
     res_kernel_size : 3
     stride          : 1
     padding         : "same"
   heads:  # policy and value head
-    policy_head_channels: 2
-    value_head_channels : 1
+    policy_head_channels: 4
+    value_head_channels : 2
     heads_kernel_size   : 1
     heads_stride        : 1
     heads_padding       : "same"
 
 # neural network training: optimizer parameters
 optimizer_parameters:
-  learning_rate: 0.001   # learning rate for Adam optimizer (AlphaGo Zero: SGD, learning rate scheduling)
+  learning_rate: 0.003   # learning rate for Adam optimizer (AlphaGo Zero: SGD, learning rate scheduling)
   weight_decay : 0.0001  # L2 weight regularization (AlphaGo Zero: 1e-4)
 
 # neural network training: data parameters
@@ -41,4 +41,4 @@ data_parameters:
 
 # evaluator (model comparison) parameters
 evaluator_parameters:
-  n_games: 100  # number of games the model plays against opponent
+  n_games: 10  # number of games the model plays against opponent
