@@ -1,12 +1,12 @@
 # general parameters
 game_size : 5       # board size
-n_iterations: 200  # total number of iterations of mcts + training + model comparison (AlphaGo Zero: 200)
+n_iterations: 25  # total number of iterations of mcts + training + model comparison (AlphaGo Zero: 200)
 
 # MCTS parameters (INFO: 3x3 Dots-and-Boxes offers 24 valid moves, 19x19 GO offers 362 valid moves)
 mcts_parameters:
-  n_games                   : 500   # number of games of self-play per iteration (AlphaGo Zero: 25,000)
+  n_games                   : 333   # number of games of self-play per iteration (AlphaGo Zero: 25,000)
   n_simulations             : 150   # number of simulations during each MCTS (AlphaGo Zero: 1,600)
-  temperature_move_threshold: 12     # parameter regarding search space diversity during training (AlphaGo Zero: 30)
+  temperature_move_threshold: 11     # parameter regarding search space diversity during training (AlphaGo Zero: 30)
   c_puct                    : 1.00  # PUCT algorithm parameter, used in Select during MCTS (AlphaGo Zero: ?)
   dirichlet_eps             : 0.25  # dirichlet noise: weight (AlphaGo Zero: 0.25)
   dirichlet_alpha           : 0.5   # dirichlet noise: distribution parameter (AlphaGo Zero: 0.03)
@@ -15,7 +15,7 @@ mcts_parameters:
 model_parameters:
   name: "DualRes"
   blocks:  # convolutional block and residual blocks
-    residual_blocks : 8
+    residual_blocks : 6
     channels        : 128
     conv_kernel_size: 3
     res_kernel_size : 3

@@ -1,4 +1,4 @@
-
+# AlphaSela：AlphaZero Algorithm for Dots and Boxes
 
 # AlphaZero: Dots and Boxes
 **AlphaZero** implementation for the Pen and Paper game **Dots and Boxes** (Project @ Universität Ulm). 
