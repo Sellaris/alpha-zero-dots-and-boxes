@@ -15,12 +15,12 @@ mcts_parameters:
 model_parameters:
   name: "DualRes"
   blocks:  
-    residual_blocks : 6     # 残差块总数（含SE块）
-    channels        : 128   # 主干通道数
-    bottleneck_channels: 32 # 瓶颈通道数（默认为主通道数的1/4）
-    se_ratio        : 0.25  # SE块压缩比
-    res_kernel_size : 3     # 残差块卷积核大小
-    conv_kernel_size: 3     # 初始卷积核大小
+    residual_blocks : 6
+    channels        : 128
+    bottleneck_channels: 32
+    se_ratio        : 0.25
+    res_kernel_size : 3
+    conv_kernel_size: 3
     stride          : 1
     padding         : "same"
   heads: 

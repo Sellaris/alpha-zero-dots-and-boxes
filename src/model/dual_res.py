@@ -197,6 +197,16 @@ class AZDualRes(AZNeuralNetwork):
             fc_out_features=(2 * self.game_size * (self.game_size + 1))
         )
         
+        # 添加缺失的value_head初始化
+        self.value_head = ValueHead(
+            conv_in_channels=channels,
+            conv_out_channels=heads_params["value_head_channels"],
+            kernel_size=heads_params["heads_kernel_size"],
+            stride=heads_params["heads_stride"],
+            padding=heads_params["heads_padding"],
+            fc_in_features=(heads_params["value_head_channels"] * img_size * img_size)
+        )
+        
         # 权重初始化
         self.weight_init()
         self.float()
