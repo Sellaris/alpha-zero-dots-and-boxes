@@ -246,9 +246,14 @@ class AZDualRes(AZNeuralNetwork):
         
         nn.init.xavier_normal_(self.policy_head.fc.weight)
         self.policy_head.fc.bias.data.fill_(0.01)
-        
-        # 值头初始化部分沿用原逻辑...
-        # （此处省略，保留原有值头初始化逻辑）
+        for m in self.value_head.conv:
+            if isinstance(m, nn.Conv2d):
+                nn.init.xavier_normal_(m.weight)
+                m.bias.data.fill_(0.01)
+        nn.init.xavier_normal_(self.value_head.fc1.weight)
+        self.value_head.fc1.bias.data.fill_(0.01)
+        nn.init.xavier_normal_(self.value_head.fc2.weight)
+        self.value_head.fc2.bias.data.fill_(0.01)
     @staticmethod
     def encode(l: np.ndarray, b: np.ndarray) -> np.ndarray:
         """encode lines and boxes into images"""
