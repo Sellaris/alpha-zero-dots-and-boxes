@@ -10,6 +10,8 @@ mcts_parameters:
   c_puct                    : 1.00  # PUCT algorithm parameter, used in Select during MCTS (AlphaGo Zero: ?)
   dirichlet_eps             : 0.25  # dirichlet noise: weight (AlphaGo Zero: 0.25)
   dirichlet_alpha           : 0.5   # dirichlet noise: distribution parameter (AlphaGo Zero: 0.03)
+  # Self-play adversary ratios [self-play, alpha-beta depth 1, depth 2, depth 3]
+  adversary_ratios          : [0.6, 0.05, 0.1, 0.25]  
 
 # neural network parameters
 model_parameters:
@@ -32,14 +34,14 @@ model_parameters:
 
 # neural network training: optimizer parameters
 optimizer_parameters:
-  learning_rate: 0.003   # learning rate for Adam optimizer (AlphaGo Zero: SGD, learning rate scheduling)
+  learning_rate: 0.002   # learning rate for Adam optimizer (AlphaGo Zero: SGD, learning rate scheduling)
   weight_decay : 0.0001  # L2 weight regularization (AlphaGo Zero: 1e-4)
 
 # neural network training: data parameters
 data_parameters:
   game_buffer: 5000   # number of recent games whose samples are used for model training (AlphaGo Zero: 500,000)
   n_batches  : 7000   # number of mini-batches (AlphaGo Zero: 700,000)
-  batch_size : 512    # batch size (AlphaGo Zero: 2,048)
+  batch_size : 1024    # batch size (AlphaGo Zero: 2,048)
 
 # evaluator (model comparison) parameters
 evaluator_parameters:

@@ -67,6 +67,9 @@ class Evaluator:
         return results
 
     def play_game(self, player1_moves_first: bool) -> int:
+        """
+        执行单场游戏（保持原有逻辑不变）
+        """
         game = DotsAndBoxesGame(self.game_size, (1 if player1_moves_first else -1))
 
         while game.is_running():

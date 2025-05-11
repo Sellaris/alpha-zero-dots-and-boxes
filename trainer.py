@@ -7,10 +7,11 @@ import torch
 import copy
 from tqdm import tqdm
 from sys import stdout
-
+from src import AIPlayer, AZNode
 # local import
-from src import Evaluator, DotsAndBoxesGame, MCTS, AZNeuralNetwork, AZDualRes, AZFeedForward, \
+from src import DotsAndBoxesGame, MCTS, AZNeuralNetwork, AZDualRes, AZFeedForward, \
     AlphaBetaPlayer, NeuralNetworkPlayer, RandomPlayer, Checkpoint, functions
+from src.evaluator import Evaluator
 
 
 class Trainer:
@@ -58,6 +59,11 @@ class Trainer:
         self.optimizer_parameters = config["optimizer_parameters"]
         self.data_parameters = config["data_parameters"]
         self.evaluator_parameters = config["evaluator_parameters"]
+        
+        # 从配置中读取对手比例
+        self.adversary_ratios = self.mcts_parameters.get("adversary_ratios", [1.0, 0, 0, 0])
+        assert sum(self.adversary_ratios) == 1.0 and len(self.adversary_ratios) == 4, \
+            "Invalid adversary ratios configuration: should be [self, ab1, ab2, ab3] sum to 1.0"
 
         # utilize gpu if possible
         if "cuda" in [inference_device, training_device]:
@@ -190,8 +196,7 @@ class Trainer:
 
     @staticmethod
     def perform_self_plays(game_size: int, model: AZNeuralNetwork, mcts_parameters: dict, n_workers: int, device: torch.device):
-        """
-        Perform games of self-play using MCTS.
+        """        Perform games of self-play using MCTS.
 
         Parameters
         ----------
@@ -217,23 +222,139 @@ class Trainer:
         model.eval()
         model.to(device)
 
+        """
+        执行混合对手类型的自我对局，支持以下组合：
+        - 自对弈 (self-play)
+        - 对抗不同深度的AlphaBeta玩家
+        """
         n_games = mcts_parameters["n_games"]
+        adversary_ratios = mcts_parameters.get("adversary_ratios", [1.0, 0, 0, 0])
+        
+        # 计算各对手类型需要的游戏数量
+        adversary_counts = [max(1, int(n_games * ratio)) for ratio in adversary_ratios]
+        # 确保总数正确（处理浮点精度问题）
+        while sum(adversary_counts) < n_games:
+            adversary_counts[0] += 1
+        
+        self_play_count, ab1_count, ab2_count, ab3_count = adversary_counts
+        
+        print(f"Generating data: Self-play({self_play_count}), AB1({ab1_count}), AB2({ab2_count}), AB3({ab3_count})")
 
         train_examples_per_game = []
-        if n_workers > 1:
+        
+        # 1. 自对弈数据
+        if self_play_count > 0:
+            print(f"Running {self_play_count} games of self-play...")
             args = (game_size, model, mcts_parameters)
             with Pool(processes=n_workers) as pool:
-                for train_examples in pool.istarmap(Trainer.perform_self_play, tqdm([args] * n_games, file=stdout, smoothing=0.0)):
+                for train_examples in pool.istarmap(Trainer.perform_self_play, tqdm([args] * self_play_count, file=stdout, smoothing=0.0)):
                     train_examples_per_game.append(train_examples)
-        else:
-            for _ in tqdm(range(n_games), file=stdout):
-                train_examples = Trainer.perform_self_play(game_size, model, mcts_parameters)
-                train_examples_per_game.append(train_examples)
+        
+        # 创建不同深度的对手
+        opponents = [
+            (AlphaBetaPlayer(depth=1), ab1_count),
+            (AlphaBetaPlayer(depth=2), ab2_count),
+            (AlphaBetaPlayer(depth=3), ab3_count)
+        ]
+        
+        # 2. 对抗不同深度的AlphaBeta玩家
+        for opponent, count in opponents:
+            if count <= 0:
+                continue
+                
+            print(f"Running {count} games against {opponent.name}...")
+            # 交替使用AI先手和对手先手
+            args_list = []
+            for i in range(count):
+                is_ai_first = (i % 2 == 0)  # 奇偶交替
+                args_list.append((game_size, model, mcts_parameters, opponent, is_ai_first))
+            
+            with Pool(processes=n_workers) as pool:
+                for train_examples in pool.istarmap(
+                    Trainer.perform_adversarial_play, tqdm(args_list, file=stdout, smoothing=0.0)
+                ):
+                    train_examples_per_game.append(train_examples)
 
-        print("{0:,} games of Self-Play resulted in {1:,} new training examples (without augmentations).".format(
+        print("{0:,} games resulted in {1:,} new training examples (without augmentations).".format(
             n_games, len([t for l in train_examples_per_game for t in l])))
-
+        
         return train_examples_per_game
+
+
+    @staticmethod
+    def perform_adversarial_play(
+        game_size: int, 
+        model: AZNeuralNetwork, 
+        mcts_parameters: dict,
+        opponent: AIPlayer,
+        is_ai_first: bool = True  # 新增参数控制先手
+    ):
+        """
+        执行AI玩家对抗特定对手的游戏，生成训练数据
+        """
+        game = DotsAndBoxesGame(game_size)
+        n_moves = 0
+        train_examples = []
+        if not is_ai_first:
+            game.current_player = -1  # 设置对手先手
+        # 创建MCTS实例用于AI决策
+        mcts = MCTS(
+            model=model,
+            s=copy.deepcopy(game),
+            mcts_parameters=mcts_parameters
+        )
+        
+        # 添加温度参数控制探索强度
+        temperature_move_threshold = mcts_parameters["temperature_move_threshold"]
+
+        while game.is_running():
+            # 根据当前玩家选择决策方式
+            if game.current_player == 1:  # AI玩家回合
+                temp = 1 if n_moves < temperature_move_threshold else 0
+                probs = mcts.play(temp=temp)
+                move = np.random.choice(
+                    a=list(range(game.N_LINES)),
+                    p=probs
+                )
+            else:  # 对手回合
+                move = opponent.determine_move(copy.deepcopy(game))
+                # 确保对手移动有效
+                if move not in game.get_valid_moves():
+                    # 对手出错时随机选择有效移动
+                    move = random.choice(game.get_valid_moves())
+                probs = [1.0 if i == move else 0.0 for i in range(game.N_LINES)]  # 独热编码
+
+
+            # 收集训练样本（仅AI视角）
+            #if game.current_player == 1:
+            train_examples.append([
+                    game.get_canonical_lines(),
+                    game.get_canonical_boxes(),
+                    probs,
+                    game.current_player  # correct v is determined later
+                ])
+
+            game.execute_move(move)
+            n_moves += 1
+
+            # 处理MCTS树的更新
+            if move in mcts.root.N:
+                mcts.root = mcts.root.get_child_by_move(move)
+            else:
+                # 创建新根节点（移动有效但未被探索）
+                mcts.root = AZNode(parent=None, a=None, s=copy.deepcopy(game))
+
+        # 更新每个样本的v值（胜负结果）
+        assert game.result is not None, "Game not finished!"
+        for i, (_, _, _, current_player) in enumerate(train_examples):
+            if current_player == game.result:
+                train_examples[i][-1] = 1
+            elif game.result == 0:
+                train_examples[i][-1] = 0
+            else:
+                train_examples[i][-1] = -1
+
+        return train_examples
 
 
     @staticmethod
