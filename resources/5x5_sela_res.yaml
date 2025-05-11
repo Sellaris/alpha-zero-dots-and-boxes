@@ -1,12 +1,12 @@
 # general parameters
 game_size : 5       # board size
-n_iterations: 25  # total number of iterations of mcts + training + model comparison (AlphaGo Zero: 200)
+n_iterations: 100  # total number of iterations of mcts + training + model comparison (AlphaGo Zero: 200)
 
 # MCTS parameters (INFO: 3x3 Dots-and-Boxes offers 24 valid moves, 19x19 GO offers 362 valid moves)
 mcts_parameters:
-  n_games                   : 4   # number of games of self-play per iteration (AlphaGo Zero: 25,000)
-  n_simulations             : 150   # number of simulations during each MCTS (AlphaGo Zero: 1,600)
-  temperature_move_threshold: 10     # parameter regarding search space diversity during training (AlphaGo Zero: 30)
+  n_games                   : 300   # number of games of self-play per iteration (AlphaGo Zero: 25,000)
+  n_simulations             : 200   # number of simulations during each MCTS (AlphaGo Zero: 1,600)
+  temperature_move_threshold: 12     # parameter regarding search space diversity during training (AlphaGo Zero: 30)
   c_puct                    : 1.00  # PUCT algorithm parameter, used in Select during MCTS (AlphaGo Zero: ?)
   dirichlet_eps             : 0.25  # dirichlet noise: weight (AlphaGo Zero: 0.25)
   dirichlet_alpha           : 0.5   # dirichlet noise: distribution parameter (AlphaGo Zero: 0.03)
@@ -15,7 +15,7 @@ mcts_parameters:
 model_parameters:
   name: "DualRes"
   blocks:  
-    residual_blocks : 6
+    residual_blocks : 8
     channels        : 128
     bottleneck_channels: 32
     se_ratio        : 0.25
@@ -24,8 +24,8 @@ model_parameters:
     stride          : 1
     padding         : "same"
   heads: 
-    policy_head_channels: 4
-    value_head_channels : 2
+    policy_head_channels: 2
+    value_head_channels : 1
     heads_kernel_size   : 1
     heads_stride        : 1
     heads_padding       : "same"
@@ -38,9 +38,9 @@ optimizer_parameters:
 # neural network training: data parameters
 data_parameters:
   game_buffer: 5000   # number of recent games whose samples are used for model training (AlphaGo Zero: 500,000)
-  n_batches  : 3000   # number of mini-batches (AlphaGo Zero: 700,000)
+  n_batches  : 7000   # number of mini-batches (AlphaGo Zero: 700,000)
   batch_size : 512    # batch size (AlphaGo Zero: 2,048)
 
 # evaluator (model comparison) parameters
 evaluator_parameters:
-  n_games: 10  # number of games the model plays against opponent
+  n_games: 50  # number of games the model plays against opponent

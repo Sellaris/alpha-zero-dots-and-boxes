@@ -45,7 +45,7 @@ class SEBlock(nn.Module):
         y = self.relu(y)
         y = self.fc2(y)
         y = self.sigmoid(y)
-        return x * y.expand_as(x)
+        return x * y
 
 
 class NestedBottleneckBlock(nn.Module):
