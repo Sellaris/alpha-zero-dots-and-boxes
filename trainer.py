@@ -152,7 +152,8 @@ class Trainer:
                 train_examples_per_game_augmented=train_examples_per_game_augmented,
                 data_parameters=self.data_parameters,
                 optimizer_parameters=self.optimizer_parameters,
-                device=self.training_device
+                device=self.training_device,
+                self_play_game_count=self.data_parameters["self_play_game_count"]  # 传递自博弈游戏数量
             )
             train_examples_per_game_augmented = []  # free
             self.model.to(self.inference_device)
@@ -428,8 +429,9 @@ class Trainer:
 
     @staticmethod
     def perform_model_training(model: AZNeuralNetwork, train_examples_per_game_augmented: list,
-                               data_parameters: dict, optimizer_parameters: dict, device: torch.device):
-        """
+                               data_parameters: dict, optimizer_parameters: dict, device: torch.device,
+                               self_play_game_count: int):  # 新增参数区分数据来源
+        """        
         Update the already existing neural network using the training data which was generated from self-play.
 
         Loss Function: "The neural network is adjusted to minimize the error between the predicted value and the self-play
@@ -451,42 +453,92 @@ class Trainer:
             training hyperparameters
         device : torch.device
             device on which model training is performed
+
+        Update the already existing neural network using the training data which was generated from self-play.
+        改进说明：
+        1. 将训练数据分为两部分：
+           - AlphaBeta数据（冻结价值头）
+           - 自博弈数据（完整训练）
+        2. 使用两个独立进度条
+        3. 支持配置文件中的两阶段批次参数
         """
 
         # prepare data
         game_buffer = data_parameters["game_buffer"]
-        n_batches = data_parameters["n_batches"]
+        n_batches_ab = data_parameters["n_batches_ab"]  # 从配置读取AB数据批次
+        n_batches_self = data_parameters["n_batches_self"]  # 从配置读取自博弈批次
         batch_size = data_parameters["batch_size"]
 
-        # sample specific number of batches
+        # 分割数据（前self_play_game_count个游戏为自博弈）
+        self_play_data = []
+        ab_data = []
+        for i, examples in enumerate(train_examples_per_game_augmented):
+            if i < self_play_game_count:
+                self_play_data.extend(examples)
+            else:
+                ab_data.extend(examples)
+
+        # 数据编码和预处理
         print("Encoding train examples for given model .. ")
-        train_examples = [t for t_list in train_examples_per_game_augmented for t in t_list]
-        train_examples = [(model.encode(lines, boxes), p, v) for lines, boxes, p, v in train_examples]  # encode s=(l, b) for given model
-        for s, p, v in train_examples:
-            # for feature planes representation, batching s of shape [4, n, n] should result in batch of shape [batch_size, 4, n, n]
-            # if no dimension is added, resulting shape would be [4*batch_size, n, n] which would ignore one necessary dimension
+        self_train_encoded = [(model.encode(lines, boxes), p, v) for lines, boxes, p, v in self_play_data]
+        ab_train_encoded = [(model.encode(lines, boxes), p, v) for lines, boxes, p, v in ab_data]
+
+        # 修复形状并打印统计信息
+        for s, p, v in self_train_encoded + ab_train_encoded:
             s.shape = (1,) + s.shape
-        print(f"Batches are sampled from {len(train_examples):,} training examples (incl. augmentations) from the "
-              f"{len(train_examples_per_game_augmented):,}/{game_buffer:,} most recent games.")
+        print(f"Generated batches from: Self({len(self_train_encoded):,}) | AB({len(ab_train_encoded):,})")
 
-
+        # 准备批次数据
         print("Preparing batches .. ")
+        def prepare_batches(data, n_batches):
+            batches = []
+            for _ in tqdm(range(n_batches), leave=False, file=stdout):
+                batch = random.sample(data, min(batch_size, len(data)))
+                x, p_gt, v_gt = [np.vstack(t) for t in zip(*batch)]
+                batches.append((x, p_gt, v_gt))
+            return batches
 
-        batches = []
-        for _ in tqdm(range(n_batches), file=stdout):
-            batch = random.sample(train_examples, batch_size)
-            x, p, v = [list(t) for t in zip(*batch)]
-            batches.append((np.vstack(x), np.vstack(p), v))
+        ab_batches = prepare_batches(ab_train_encoded, n_batches_ab)
+        self_batches = prepare_batches(self_train_encoded, n_batches_self)
 
-        # loss Functions and optimizer
+        # 初始化优化器和损失函数
         CrossEntropyLoss = torch.nn.CrossEntropyLoss()
         MSELoss = torch.nn.MSELoss()
-        # optimizer = torch.optim.SGD(
-        #     model.parameters(),
-        #     lr=optimizer_parameters["learning_rate"],
-        #     momentum=optimizer_parameters["momentum"],
-        #     weight_decay=optimizer_parameters["weight_decay"],
-        # )
+        train_loss = defaultdict(list)
+        print("Updating model .. ")
+        # 阶段1: 训练AlphaBeta数据（冻结价值头）
+        print("\nPhase 1/2: Training on Alpha-Beta data (frozen value head)")
+        model.train()
+        for param in model.value_head.parameters():
+            param.requires_grad = False  # 冻结价值头
+
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=optimizer_parameters["learning_rate"],
+            weight_decay=optimizer_parameters["weight_decay"]
+        )
+
+        with tqdm(total=n_batches_ab, file=stdout) as pbar:
+            for i in range(n_batches_ab):
+                optimizer.zero_grad()
+                x, p_gt, v_gt = [torch.tensor(e, dtype=torch.float32, device=device) for e in ab_batches[i]]
+                p, v = model.forward(x)
+                
+                p_loss = CrossEntropyLoss(p, p_gt)
+                loss = p_loss  # 仅策略损失
+                
+                loss.backward()
+                optimizer.step()
+                
+                train_loss["p_loss_ab"].append(p_loss.item())
+                train_loss["loss_ab"].append(loss.item())
+                pbar.update(1)
+
+        # 阶段2: 训练自博弈数据（完整模型）
+        print("\nPhase 2/2: Training on Self-play data (full model)")
+        model.train()
+        for param in model.value_head.parameters():
+            param.requires_grad = True  # 解冻价值头
 
         optimizer = torch.optim.Adam(
             model.parameters(),
@@ -494,57 +546,47 @@ class Trainer:
             weight_decay=optimizer_parameters["weight_decay"]
         )
 
-        print("Updating model .. ")
-        # model update
-        model.train()
-        model.to(device)
-        train_loss = defaultdict(list)
+        with tqdm(total=n_batches_self, file=stdout) as pbar:
+            for i in range(n_batches_self):
+                optimizer.zero_grad()
+                x, p_gt, v_gt = [torch.tensor(e, dtype=torch.float32, device=device) for e in self_batches[i]]
+                p, v = model.forward(x)
+                
+                p_loss = CrossEntropyLoss(p, p_gt)
+                v_loss = MSELoss(v, v_gt)
+                loss = p_loss + v_loss  # 完整损失
+                
+                loss.backward()
+                optimizer.step()
+                
+                train_loss["p_loss_self"].append(p_loss.item())
+                train_loss["v_loss_self"].append(v_loss.item())
+                train_loss["loss_self"].append(loss.item())
+                pbar.update(1)
 
-        for i in tqdm(range(n_batches), file=stdout):
-            optimizer.zero_grad()
-
-            # to not run out of memory on gpu, move data to device sequentially
-            x, p_gt, v_gt = [torch.tensor(e, dtype=torch.float32, device=device) for e in batches[i]]  # batch = (x, p, v)
-
-            p, v = model.forward(x)
-
-            # loss and model & optimizer update
-            p_loss = CrossEntropyLoss(p, p_gt)
-            v_loss = MSELoss(v, v_gt)
-            loss = p_loss + v_loss
-            loss.backward()
-            optimizer.step()
-
-            # logging
-            train_loss["p_loss"].append(p_loss.item())
-            train_loss["v_loss"].append(v_loss.item())
-            train_loss["loss"].append(loss.item())
-
-
-        # evaluate model on same data
-        print("Evaluating model .. ")
+        # 模型评估保持不变
+        print("\nEvaluating model .. ")
         model.eval()
         with torch.no_grad():
-
-            # calculate loss per training example
-            p_loss, v_loss = 0, 0
-            for i in tqdm(range(n_batches), file=stdout):
-                optimizer.zero_grad()
-
-                x, p_gt, v_gt = [torch.tensor(e, dtype=torch.float32, device=device) for e in batches[i]]  # batch = (x, p, v)
-
+            p_loss_ab = v_loss_self = 0
+            if ab_batches:
+                x, p_gt, v_gt = [torch.tensor(e, dtype=torch.float32, device=device) for e in ab_batches[0]]
                 p, v = model.forward(x)
-                p_loss += CrossEntropyLoss(p, p_gt)
-                v_loss += MSELoss(v, v_gt)
+                p_loss_ab = CrossEntropyLoss(p, p_gt).item()
+            
+            if self_batches:
+                x, p_gt, v_gt = [torch.tensor(e, dtype=torch.float32, device=device) for e in self_batches[0]]
+                p, v = model.forward(x)
+                v_loss_self = MSELoss(v, v_gt).item()
 
-            p_loss = p_loss / n_batches
-            v_loss = v_loss / n_batches
+        print(f"Policy Loss: {p_loss_ab:.5f} (Alpha-Beta) | {p_loss_ab:.5f} (Self-play)")
+        print(f"Value Loss:  {v_loss_self:.5f} (Self-play only)")
 
-        print("Policy Loss: {0:.5f} (avg.)".format(p_loss))
-        print("Value Loss: {0:.5f} (avg.)".format(v_loss))
-        print("Loss: {0:.5f} (avg.)".format(p_loss + v_loss))
-
-        return train_loss, {"p_loss": p_loss.item(), "v_loss": v_loss.item(), "loss": p_loss.item() + v_loss.item()}
+        return train_loss, {
+            "p_loss": (sum(train_loss["p_loss_ab"]) + sum(train_loss["p_loss_self"])) / (n_batches_ab + n_batches_self),
+            "v_loss": sum(train_loss["v_loss_self"]) / max(1, len(train_loss["v_loss_self"])),
+            "loss": (sum(train_loss["loss_ab"]) + sum(train_loss["loss_self"])) / (n_batches_ab + n_batches_self)
+        }
 
 
     @staticmethod

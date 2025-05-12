@@ -1,11 +1,11 @@
 # general parameters
-game_size : 5       # board size
+game_size : 2      # board size
 n_iterations: 100  # total number of iterations of mcts + training + model comparison (AlphaGo Zero: 200)
 
 # MCTS parameters (INFO: 3x3 Dots-and-Boxes offers 24 valid moves, 19x19 GO offers 362 valid moves)
 mcts_parameters:
   n_games                   : 300   # number of games of self-play per iteration (AlphaGo Zero: 25,000)
-  n_simulations             : 200   # number of simulations during each MCTS (AlphaGo Zero: 1,600)
+  n_simulations             : 100   # number of simulations during each MCTS (AlphaGo Zero: 1,600)
   temperature_move_threshold: 12     # parameter regarding search space diversity during training (AlphaGo Zero: 30)
   c_puct                    : 1.00  # PUCT algorithm parameter, used in Select during MCTS (AlphaGo Zero: ?)
   dirichlet_eps             : 0.25  # dirichlet noise: weight (AlphaGo Zero: 0.25)
@@ -39,9 +39,10 @@ optimizer_parameters:
 
 # neural network training: data parameters
 data_parameters:
-  game_buffer: 5000   # number of recent games whose samples are used for model training (AlphaGo Zero: 500,000)
-  n_batches  : 7000   # number of mini-batches (AlphaGo Zero: 700,000)
-  batch_size : 1024    # batch size (AlphaGo Zero: 2,048)
+  game_buffer: 5000   # number of recent games whose samples are used for model training
+  n_batches_ab: 1000   # AlphaBeta batches for training policy head first
+  n_batches_self: 2000 # self-play batches for training policy head and value head
+  batch_size : 1024
 
 # evaluator (model comparison) parameters
 evaluator_parameters:
