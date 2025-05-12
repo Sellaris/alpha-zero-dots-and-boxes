@@ -1,14 +1,14 @@
 # general parameters
-game_size : 5      # board size
+game_size : 3      # board size
 n_iterations: 100  # total number of iterations of mcts + training + model comparison (AlphaGo Zero: 200)
 
 # MCTS parameters (INFO: 3x3 Dots-and-Boxes offers 24 valid moves, 19x19 GO offers 362 valid moves)
 mcts_parameters:
-  n_games                   : 500   # number of games of self-play per iteration (AlphaGo Zero: 25,000)
+  n_games                   : 1   # number of games of self-play per iteration (AlphaGo Zero: 25,000)
   n_simulations             : 150   # number of simulations during each MCTS (AlphaGo Zero: 1,600)
   temperature_move_threshold: 12     # parameter regarding search space diversity during training (AlphaGo Zero: 30)
   c_puct                    : 1.50  # PUCT algorithm parameter, used in Select during MCTS (AlphaGo Zero: ?)
-  dirichlet_eps             : 0.25  # dirichlet noise: weight (AlphaGo Zero: 0.25)
+  dirichlet_eps             : 0.25            # dirichlet noise: weight (AlphaGo Zero: 0.25)
   dirichlet_alpha           : 0.25   # dirichlet noise: distribution parameter (AlphaGo Zero: 0.03)
   # Self-play adversary ratios [self-play, alpha-beta depth 1, depth 2, depth 3]
   adversary_ratios          : [0.6, 0.05, 0.1, 0.25]  
@@ -18,9 +18,9 @@ model_parameters:
   name: "DualRes"
   blocks:  
     residual_blocks : 8
-    channels        : 128
-    bottleneck_channels: 32
-    se_ratio        : 0.25
+    channels        : 256
+    bottleneck_channels: 64
+    se_ratio        : 0.125
     res_kernel_size : 3
     conv_kernel_size: 3
     stride          : 1
@@ -40,8 +40,8 @@ optimizer_parameters:
 # neural network training: data parameters
 data_parameters:
   game_buffer: 5000   # number of recent games whose samples are used for model training
-  n_batches_ab: 7000   # AlphaBeta batches for training policy head first
-  n_batches_self: 10000 # self-play batches for training policy head and value head
+  n_batches_ab: 1   # AlphaBeta batches for training policy head first
+  n_batches_self: 1 # self-play batches for training policy head and value head
   batch_size : 1024
 
 # evaluator (model comparison) parameters

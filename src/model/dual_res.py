@@ -209,7 +209,8 @@ class AZDualRes(AZNeuralNetwork):
         
         # 权重初始化
         self.weight_init()
-        self.float()
+
+        self.to(inference_device)  # 将模型移动到指定设备
 
     def weight_init(self):
         """新增模块的权重初始化，保持原有初始化风格"""
