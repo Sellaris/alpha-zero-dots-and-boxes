@@ -326,9 +326,9 @@ class Trainer:
                 probs = [1.0 if i == move else 0.0 for i in range(game.N_LINES)]  # 独热编码
 
 
-            # 收集训练样本（仅AI视角）
-            #if game.current_player == 1:
-            train_examples.append([
+            # 收集训练样本（仅alpha-beta-AI视角）
+            if game.current_player != 1:
+                train_examples.append([
                     game.get_canonical_lines(),
                     game.get_canonical_boxes(),
                     probs,
@@ -457,7 +457,7 @@ class Trainer:
         Update the already existing neural network using the training data which was generated from self-play.
         改进说明：
         1. 将训练数据分为两部分：
-           - AlphaBeta数据（冻结价值头）
+           - AlphaBeta数据(冻结价值头)
            - 自博弈数据（完整训练）
         2. 使用两个独立进度条
         3. 支持配置文件中的两阶段批次参数
