@@ -153,7 +153,7 @@ class Trainer:
                 data_parameters=self.data_parameters,
                 optimizer_parameters=self.optimizer_parameters,
                 device=self.training_device,
-                self_play_game_count=self.data_parameters["self_play_game_count"]  # 传递自博弈游戏数量
+                self_play_game_count=self.adversary_ratios[0]*self.mcts_parameters.get("n_games",100)  # 传递自博弈游戏数量
             )
             train_examples_per_game_augmented = []  # free
             self.model.to(self.inference_device)
@@ -362,7 +362,7 @@ class Trainer:
     def perform_self_play(game_size: int, model: AZNeuralNetwork, mcts_parameters: dict):
         """
         Perform a single game of self-play using MCTS. The data for the game is stored as (l, b, p, v) at each
-        time-step (i.e., each turn results in a training example), with l (lines vector) and b (boxes matrix)
+        time-step (i.e., each turn results in a training example),  l (lines vector) and b (boxes matrix)
         representing the game state, and p (policy vector) and v (value scalar) being the parameters to be predicted.
 
         Returns
@@ -550,15 +550,16 @@ class Trainer:
             for i in range(n_batches_self):
                 optimizer.zero_grad()
                 x, p_gt, v_gt = [torch.tensor(e, dtype=torch.float32, device=device) for e in self_batches[i]]
+                v_gt = v_gt.squeeze()  # 新增维度压缩，使目标值形状与模型输出一致
                 p, v = model.forward(x)
-                
+                    
                 p_loss = CrossEntropyLoss(p, p_gt)
                 v_loss = MSELoss(v, v_gt)
                 loss = p_loss + v_loss  # 完整损失
-                
+                    
                 loss.backward()
                 optimizer.step()
-                
+                    
                 train_loss["p_loss_self"].append(p_loss.item())
                 train_loss["v_loss_self"].append(v_loss.item())
                 train_loss["loss_self"].append(loss.item())
@@ -571,17 +572,19 @@ class Trainer:
             p_loss_ab = v_loss_self = 0
             if ab_batches:
                 x, p_gt, v_gt = [torch.tensor(e, dtype=torch.float32, device=device) for e in ab_batches[0]]
+                v_gt = v_gt.squeeze()
                 p, v = model.forward(x)
                 p_loss_ab = CrossEntropyLoss(p, p_gt).item()
             
             if self_batches:
                 x, p_gt, v_gt = [torch.tensor(e, dtype=torch.float32, device=device) for e in self_batches[0]]
+                v_gt = v_gt.squeeze()
                 p, v = model.forward(x)
                 v_loss_self = MSELoss(v, v_gt).item()
 
-        print(f"Policy Loss: {p_loss_ab:.5f} (Alpha-Beta) | {p_loss_ab:.5f} (Self-play)")
+        print(f"Policy Loss: {(sum(train_loss['p_loss_ab']) + sum(train_loss['p_loss_self'])) / (n_batches_ab + n_batches_self):.5f}")
         print(f"Value Loss:  {v_loss_self:.5f} (Self-play only)")
-
+        print(f"Loss{(sum(train_loss['loss_ab']) + sum(train_loss['loss_self'])) / (n_batches_ab + n_batches_self)}:.5f")
         return train_loss, {
             "p_loss": (sum(train_loss["p_loss_ab"]) + sum(train_loss["p_loss_self"])) / (n_batches_ab + n_batches_self),
             "v_loss": sum(train_loss["v_loss_self"]) / max(1, len(train_loss["v_loss_self"])),

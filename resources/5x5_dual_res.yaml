@@ -9,7 +9,7 @@ mcts_parameters:
   temperature_move_threshold: 10     # parameter regarding search space diversity during training (AlphaGo Zero: 30)
   c_puct                    : 1.00  # PUCT algorithm parameter, used in Select during MCTS (AlphaGo Zero: ?)
   dirichlet_eps             : 0.25  # dirichlet noise: weight (AlphaGo Zero: 0.25)
-  dirichlet_alpha           : 0.5   # dirichlet noise: distribution parameter (AlphaGo Zero: 0.03)
+  dirichlet_alpha           : 0.25   # dirichlet noise: distribution parameter (AlphaGo Zero: 0.03)
 
 # neural network parameters
 model_parameters:
