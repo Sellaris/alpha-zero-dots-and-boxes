@@ -1,6 +1,41 @@
+# AlphaSela：AlphaZero Algorithm for Dots and Boxes
 
 
-# AlphaZero: Dots and Boxes
+Based on the original AlphaZero/ResNet architecture, our main innovations are:
+
+**(1) Nested Bottleneck Residual Blocks (NBR)**; 
+
+**(2) Global Pooling Bias**; 
+
+**(3) Residual Blocks Post-connecting SE Attention Mechanism (Squeeze-and-Excitation)**.
+
+## Nested Bottleneck Residual Block (NBR)
+
+From Katago, Nested Bottleneck structure that is, in the traditional ResNet bottleneck block, the number of channels is first compressed by half with 1×1 convolution, then the features are extracted with 3×3 convolution, and finally the 1×1 convolution is restored to the original number of channels, which significantly reduces the number of parameters and computation, while preserving the network depth and capacity .
+
+* **Compression-Expansion Idea**: 1×1→3×3→1×1 framework, which makes the intermediate main convolution process only fewer channels and reduce FLOPs, especially suitable for deeper networks.
+* **Nested Calling**: This “compression-expansion” pattern is applied inside each residual block to further compress the information flow and strengthen the feature learning; it echoes the “bottomleneck” in the original text, which aims to balance the depth and width.
+* **Training Stability**: Bottleneck blocks have their own jump connections, which help gradient flow and avoid deep network degradation, so that the model can still converge efficiently in more than 6-10 blocks.
+
+## Global Pooling Bias (Global Pooling Bias)
+
+This module is inserted after every three residual blocks to inject global plate information into the local convolutional features and enhance the model's perception of the overall situation.
+
+* **Calculation**: do global average, maximum, and other kinds of pooling for certain channel groups to get a statistic of length 3-c, then FC map back to the main channel number and sum by channel bias .
+* **Source of Usage**: this structure is proposed in the KataGo paper and is only used in several blocks (e.g., blocks 3, 6, and 9), which significantly improves the performance of the strategy and value in the later stages of training.
+* **Functional effect**: Local convolution is essentially a finite sense field, which makes it difficult to capture non-local tactics (e.g., “hijacking” in Go , "Global Strategy" or "Long Term Strategy" in this Game). Adding a global pooling bias helps the model adaptively adjust its local judgments in the presence of macro information such as different score differentials and number of remaining edges.
+
+## Add SE attention (Squeeze-and-Excitation) after each residual block.
+
+The SE block further strengthens the usefulness of the local feature channel through adaptive channel attention.
+
+* **Squeeze phase**: do global average pooling of input features to generate global descriptors `[B,C,1,1]` for each channel.
+* **Excitation stage**: two-layer 1×1 mapping first downscaling (ratio) and then upscaling, and finally Sigmoid to generate channel weights `[0,1]`.
+* **Scale application**: Multiply the generated attention weights by channel with the original features element by element, dynamically amplify the response for key channels, suppress redundant noise, and improve the quality of feature expression.
+
+
+
+# Based on "AlphaZero: Dots and Boxes"
 **AlphaZero** implementation for the Pen and Paper game **Dots and Boxes** (Project @ Universität Ulm). 
 
 Have a look at the full [report](/report.pdf), providing detailed information about the AlphaZero algorithm, how it is adapted for Dots and Boxes, and visualizations of training progress including loss and results evolution against other game-playing AI approaches.

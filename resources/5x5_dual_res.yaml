@@ -1,0 +1,46 @@
+# general parameters
+game_size : 5       # board size
+n_iterations: 25  # total number of iterations of mcts + training + model comparison (AlphaGo Zero: 200)
+
+# MCTS parameters (INFO: 3x3 Dots-and-Boxes offers 24 valid moves, 19x19 GO offers 362 valid moves)
+mcts_parameters:
+  n_games                   : 4   # number of games of self-play per iteration (AlphaGo Zero: 25,000)
+  n_simulations             : 150   # number of simulations during each MCTS (AlphaGo Zero: 1,600)
+  temperature_move_threshold: 10     # parameter regarding search space diversity during training (AlphaGo Zero: 30)
+  c_puct                    : 1.00  # PUCT algorithm parameter, used in Select during MCTS (AlphaGo Zero: ?)
+  dirichlet_eps             : 0.25  # dirichlet noise: weight (AlphaGo Zero: 0.25)
+  dirichlet_alpha           : 0.5   # dirichlet noise: distribution parameter (AlphaGo Zero: 0.03)
+
+# neural network parameters
+model_parameters:
+  name: "DualRes"
+  blocks:  
+    residual_blocks : 6     # 残差块总数（含SE块）
+    channels        : 128   # 主干通道数
+    bottleneck_channels: 32 # 瓶颈通道数（默认为主通道数的1/4）
+    se_ratio        : 0.25  # SE块压缩比
+    res_kernel_size : 3     # 残差块卷积核大小
+    conv_kernel_size: 3     # 初始卷积核大小
+    stride          : 1
+    padding         : "same"
+  heads: 
+    policy_head_channels: 4
+    value_head_channels : 2
+    heads_kernel_size   : 1
+    heads_stride        : 1
+    heads_padding       : "same"
+
+# neural network training: optimizer parameters
+optimizer_parameters:
+  learning_rate: 0.003   # learning rate for Adam optimizer (AlphaGo Zero: SGD, learning rate scheduling)
+  weight_decay : 0.0001  # L2 weight regularization (AlphaGo Zero: 1e-4)
+
+# neural network training: data parameters
+data_parameters:
+  game_buffer: 5000   # number of recent games whose samples are used for model training (AlphaGo Zero: 500,000)
+  n_batches  : 3000   # number of mini-batches (AlphaGo Zero: 700,000)
+  batch_size : 512    # batch size (AlphaGo Zero: 2,048)
+
+# evaluator (model comparison) parameters
+evaluator_parameters:
+  n_games: 10  # number of games the model plays against opponent
