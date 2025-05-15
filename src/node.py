@@ -1,4 +1,4 @@
-# local import
+# local import 
 from .game import DotsAndBoxesGame
 
 
@@ -18,35 +18,42 @@ class AZNode:
         action values Q[a] = Q(s,a)
     N : dict
         visit counts N[a] = N(s,a)
+    W : dict
+        total value W[a] = sum of value backups for action a
     P : np.ndarray
-        action values P(s,a) as returned by the neural network
+        action prior probabilities P(s,a) as returned by the neural network
+    N_rave : dict
+        RAVE visit counts for action a
+    W_rave : dict
+        RAVE total values for action a
     """
 
-    def __init__(self, parent, s: DotsAndBoxesGame, a: int):
-
-        if parent is not None:  # only root node has no parent
-            assert isinstance(parent, AZNode)
-            for child in parent.children:  # node shouldn't already exist for parent
-                assert child.s != s and child.a != a
-
-        # any node except root of complete MCTS search tree needs to have a corresponding move
+    def __init__(self, parent, a: int, s: DotsAndBoxesGame):
+        # any node except root needs to have a corresponding move
         assert (parent is None and a is None) or (parent is not None and isinstance(a, int))
 
-        # create link with parent node
+        # if not root, link to parent
         if parent is not None:
+            assert isinstance(parent, AZNode)
             parent.children.append(self)
 
-        # use constructor parameters
-        # self.parent = parent (unnecessary, commented since it was never used)
+        # assign move and state
         self.a = a
         self.s = s
 
+        # initialize child containers
         self.children = []
+        # action statistics
         self.Q = {}
+        self.W = {}           # total value sums for each action
         self.N = {}
         self.P = None
-        
+        # RAVE statistics
+        self.N_rave = {}
+        self.W_rave = {}
+
     def get_child_by_move(self, a: int):
         for child in self.children:
             if child.a == a:
                 return child
+        return None

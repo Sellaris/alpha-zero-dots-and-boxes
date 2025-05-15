@@ -11,304 +11,241 @@ from .node import AZNode
 
 class MCTS:
     """
-    An MCTS is executed, guided by the neural network, in each position s during self-play to determine the next move.
+    Monte Carlo Tree Search (MCTS) implementation combining:
+      - PUCT with dynamic exploration constant
+      - Rapid Action Value Estimate (RAVE) mixing
+      - Virtual loss for safe parallelization
 
-    Attributes
-    ----------
-    model : AZNeuralNetwork
-        neural network for evaluating board positions
-    root : AZNode
-        node from which the MCTS is executed (with input position s)
-    n_simulations : int
-        # simulations for each MCTS (only to determine the next move)
-    c_puct : float
-        constant determining level of exploration (PUCT algorithm in select)
-    dirichlet_eps : float
-        weight of dirichlet noise for root node of a simulation
-    dirichlet_alpha : float
-        distribution parameter for dirichlet noise
+    Attributes:
+        model (AZNeuralNetwork): Neural network providing policy priors P(s,a) and value v(s).
+        root (AZNode): Root of the search tree, corresponding to the current game state.
+        n_simulations (int): Number of MCTS simulations per move.
+        c_puct (float): Base exploration coefficient for PUCT.
+        base_c (float): Base PUCT constant (aliased to c_puct).
+        alpha (float): Strength of dynamic adjustment for exploration.
+        dirichlet_eps (float): Epsilon weight for Dirichlet noise at root.
+        dirichlet_alpha (float): Alpha parameter for Dirichlet distribution.
+
+    Class Constants:
+        VIRTUAL_LOSS (float): Amount to subtract/add for virtual loss mechanism.
+        RAVE_BETA_COEFF (float): RAVE blending coefficient (b in β = b/(b+N)).
     """
 
-    def __init__(self, model: AZNeuralNetwork, s: DotsAndBoxesGame, mcts_parameters: dict):
+    VIRTUAL_LOSS = 1.0
+    RAVE_BETA_COEFF = 1000.0
 
+    def __init__(
+        self,
+        model: AZNeuralNetwork,
+        s: DotsAndBoxesGame,
+        mcts_parameters: dict
+    ):
+        # Store neural network and initialize root node
         self.model = model
-        self.root = AZNode(
-            parent=None,
-            a=None,
-            s=s
-        )
+        self.root = AZNode(parent=None, a=None, s=s)
+        # Ensure RAVE stats containers exist on the root
+        self.root.N_rave = {}
+        self.root.W_rave = {}
 
-        self.n_simulations = mcts_parameters["n_simulations"]
-        self.c_puct = mcts_parameters["c_puct"]
-        self.dirichlet_eps = mcts_parameters["dirichlet_eps"]
-        self.dirichlet_alpha = mcts_parameters["dirichlet_alpha"]
+        # Extract MCTS hyperparameters
+        self.n_simulations   = mcts_parameters["n_simulations"]
+        self.c_puct          = mcts_parameters.get("c_puct", 1.0)
+        self.base_c          = self.c_puct
+        self.alpha           = mcts_parameters.get("c_puct_alpha", 0.0)
+
+        self.dirichlet_eps   = mcts_parameters.get("dirichlet_eps", 0.25)
+        self.dirichlet_alpha = mcts_parameters.get("dirichlet_alpha", 0.03)
 
     def play(self, temp: int) -> [float]:
         """
-        (d) Play.
-        Provides the core functionality of MCTS: output search probabilities recommending moves to play.
-
-        Parameters
-        ----------
-        temp : int
-            temperature controlling parameter
-
-        Returns
-        -------
-        probs : [float]
-            move probabilities pi(a) ~ N(s,a)^(1/temp)
+        Run full MCTS for the root state and return move probabilities.
+        temp: Temperature for final distribution (0 => argmax).
         """
+        s = self.root.s
+        valid_moves = s.get_valid_moves()
 
-        s = self.root.s  # position s of root node (more accurate: the game state that contains position s)
-        valid_moves = self.root.s.get_valid_moves()
+        # Perform n_simulations playouts
+        for _ in range(self.n_simulations):
+            # Add Dirichlet noise only at the root
+            dir_noise = np.zeros(s.N_LINES, dtype=np.float32)
+            dir_noise[valid_moves] = np.random.dirichlet([
+                self.dirichlet_alpha] * len(valid_moves)
+            )
+            self.search(self.root, is_root=True, dirichlet_noise=dir_noise)
 
-        # perform MCTS simulations
-        for i in range(self.n_simulations):
-            # dirichlet noise (only for valid moves), added later to the prior probabilities of the root node
-            dirichlet_noise = np.zeros((s.N_LINES,), dtype=np.float32)
-            dirichlet_noise[valid_moves] = np.random.dirichlet([self.dirichlet_alpha] * len(valid_moves))
-
-            self.search(self.root, is_root=True, dirichlet_noise=dirichlet_noise)
-
-        # only valid moves may have a visit
-        assert set(list(self.root.N.keys())).issubset(set(s.get_valid_moves()))
-
-        # probability vector that is returned should contain value for each line
-        # when line is already drawn, probability should be 0
-        counts = [self.root.N[a] if a in self.root.N else 0 for a in range(s.N_LINES)]
-
+        # Compute visit counts, then temperature-scaled probabilities
+        counts = [self.root.N.get(a, 0) for a in range(s.N_LINES)]
         if temp == 0:
-            # select the move with maximum visit count to give the strongest possible play (return value is one-hot vector)
+            # Deterministic: pick the most visited move
             probs = [0] * len(counts)
-            probs[np.array(counts).argmax()] = 1
+            best = int(np.argmax(counts))
+            probs[best] = 1
             return probs
 
-        # pi(a) ~ N(s,a)^(1/temp) while ensuring a probability distribution
-        probs = [n ** (1. / temp) for n in counts]
-        probs = [p / float(sum(probs)) for p in probs]
-        return probs
+        # Softmax with temperature (via counts^(1/temp))
+        scaled = [c ** (1.0 / temp) for c in counts]
+        total = sum(scaled)
+        return [x / total for x in scaled]
 
-
-    def search(self, node: AZNode, is_root: bool = False, dirichlet_noise: np.ndarray = None) -> float:
+    def dynamic_c(self, node: AZNode) -> float:
         """
-        Recursively perform a single simulation within MCTS.
-
-        Parameters
-        ----------
-        node : AZNode
-            node that corresponds to the MCTS's current position s
-        is_root : bool
-            whether the current node is the root node of the search or not (relevant for dirichlet noise)
-        dirichlet_noise : bool
-            dirichlet noise that is applied only on the prior probabilities of the root node
-
-        Returns
-        -------
-        v : float
-            probability of the current player winning in position s
+        Compute a dynamic exploration coefficient:
+        base_c * (1 + alpha / (1 + total_visits)).
+        total_visits: sum of N(s,a) for all a at this node.
         """
+        total_visits = sum(node.N.values())
+        return self.base_c * (1 + self.alpha / (1 + total_visits))
 
+    def search(
+        self,
+        node: AZNode,
+        is_root: bool = False,
+        dirichlet_noise: np.ndarray = None
+    ) -> float:
+        """
+        Single MCTS simulation: Selection -> Expansion/Evaluation -> Backup.
+        Returns: the value v ∈ [-1,1] from the leaf evaluation.
+        """
+        # Terminal check
         if not node.s.is_running():
-            # game is finished before reaching a non-visited node
-            # return the actual score v for the current player
-            # in case of a winner, current_player contains it (when capturing
-            # a box, the current player does not switch)
-            result = node.s.result
-
-            if node.s.current_player == result:
-                v = 1
-            elif result == 0:
-                v = 0
+            res = node.s.result
+            if res == node.s.current_player:
+                return 1
+            elif res == 0:
+                return 0
             else:
-                v = -1
-            return v
+                return -1
 
-        # reached a leaf (node which was not visited yet)
+        # If leaf (no policy), evaluate network to set P and return v
         if node.P is None:
-            v = self.evaluate(node)
-            return v
+            return self.evaluate(node)
 
-        # node was visited before: continue traversing the tree
-        a = self.select(node, is_root, dirichlet_noise)
+        # Selection + Expansion
+        leaf, path = self._select(node, is_root, dirichlet_noise)
 
-        if a not in node.N:
-            # applying the selected move means approaching a leaf (node which was not visited yet)
-            child = self.expand(node, a)
+        # If newly expanded leaf, network evaluated in evaluate(); else terminal
+        if leaf.P is None:
+            v = self.evaluate(leaf)
         else:
-            child = node.get_child_by_move(a)
+            res = leaf.s.result
+            v = 1 if res == leaf.s.current_player else 0 if res == 0 else -1
 
-        # continue traversing, i.e., call method recursively
-        v_child = self.search(child)
-
-        # we now received a score v from the child node, either by ..
-        # .. reaching a leaf (v in [-1,1] as calculated by the neural network) or by
-        # .. finishing the game (v in {-1, 0, 1})
-        v = v_child if node.s.current_player == child.s.current_player else -v_child
-
-        # backup before returning v
-        self.backup(node, a, v)
-
+        # Backpropagate value and undo virtual losses
+        self._backup(path, v)
         return v
 
-    def select(self, node: AZNode, is_root: bool, dirichlet_noise: np.ndarray) -> int:
+    def _select(
+        self,
+        node: AZNode,
+        is_root: bool,
+        dirichlet_noise: np.ndarray
+    ):
         """
-        (a) Select.
-        Select the move with maximum action value Q, plus an upper confidence bound U that depends on a stored
-        prior probability P and visit count N.
-
-        Parameters
-        ----------
-        node : AZNode
-            (non-leaf) node that corresponds to the MCTS's current position s
-        is_root : bool
-            whether the current node is the root node of the search or not (relevant for dirichlet noise)
-        dirichlet_noise : bool
-            dirichlet noise that is applied only on the prior probabilities of the root node
-
-        Returns
-        -------
-        a_max : int
-            move a for which Q(s,a) + U(s,a) is maximized
+        Traverse from node to leaf by selecting actions that maximize:
+          Q_hat + U,
+        where Q_hat mixes standard Q and RAVE estimate, and
+        U = dynamic_c * P * sqrt(sumN) / (1+N).
         """
-        assert len(node.s.get_valid_moves()) > 0
+        path = []
+        # Continue until leaf or terminal
+        while node.P is not None and node.s.is_running():
+            total_N = sum(node.N.values())
+            sqrt_N  = math.sqrt(total_N)
+            # Apply Dirichlet noise only at root
+            P = (1 - self.dirichlet_eps) * node.P + self.dirichlet_eps * dirichlet_noise if is_root else node.P
 
-        maximum = float('-inf')
-        a_max = -1
+            # Select best action a
+            best_score, best_action = -float('inf'), None
+            for a in node.s.get_valid_moves():
+                q = node.Q.get(a, 0.0)
+                n = node.N.get(a, 0)
+                # RAVE: rapid action value estimate
+                n_rave = node.N_rave.get(a, 0)
+                q_rave = (node.W_rave.get(a, 0.0) / n_rave) if n_rave > 0 else 0.0
+                beta = self.RAVE_BETA_COEFF / (self.RAVE_BETA_COEFF + total_N)
+                q_hat = (1 - beta) * q + beta * q_rave
 
-        N_sum = sum(node.N.values())
-        N_sqrt = math.sqrt(N_sum)
+                # Exploration bonus
+                u = self.dynamic_c(node) * P[a] * sqrt_N / (1 + n)
+                score = q_hat + u
+                if score > best_score:
+                    best_score, best_action = score, a
 
-        P = node.P if not is_root else \
-            (1 - self.dirichlet_eps) * node.P + self.dirichlet_eps * dirichlet_noise
-        assert abs(np.sum(P) - 1) < 1e-6, \
-            f"is_root: {is_root}, sum of P: {np.sum(node.P)}, sum of P after adding dirichlet noise: {np.sum(P)}"
+            # Virtual loss for parallel safety
+            node.N[best_action] = node.N.get(best_action, 0) + self.VIRTUAL_LOSS
+            node.W[best_action] = node.W.get(best_action, 0.0) - self.VIRTUAL_LOSS
+            path.append((node, best_action))
 
-        for a in node.s.get_valid_moves():
-            # each move corresponds to a child node that may or may not have
-            # already been visited
-
-            p = P[a]
-            if a in node.N:
-                q = node.Q[a]
-                n = node.N[a]
+            # Move to next node: expand if necessary
+            child = node.get_child_by_move(best_action)
+            if child is None:
+                node = self.expand(node, best_action)
             else:
-                q = 0
-                n = 0
+                node = child
+            # Only apply noise on first move
+            is_root, dirichlet_noise = False, None
 
-            # upper confidence bound U(s, a) ~ P(s, a) / (1 + N(s, a))
-            u = self.c_puct * p * N_sqrt / (1 + n)
+        return node, path
 
-            # maximize action value Q(s,a) + upper confidence bound U(s,a)
-            if q + u > maximum:
-                maximum = q + u
-                a_max = a
-
-        return a_max
-
-
-    def expand(self, node: AZNode, a: int):
+    def expand(self, node: AZNode, a: int) -> AZNode:
         """
-        (b) Expand (and Evaluate).
-        For the input node, create the child node (i.e., we are approaching a leaf) that is reached when executing move a.
-
-        Parameters
-        ----------
-        node : AZNode
-            node that corresponds to the MCTS's current position s
-        a : int
-            move with which the leaf is reached from the current node
-
-        Returns
-        -------
-        leaf : AZNode
-            the created child node/leaf
+        Expand the tree by creating a child for action a.
+        Copies state, applies move, initializes new AZNode.
+        Child inherits RAVE containers.
         """
-        s = copy.deepcopy(node.s)
-        s.execute_move(a)
-        leaf = AZNode(
-            parent=node,
-            a=a,
-            s=s
-        )
-        return leaf
-
+        s_copy = copy.deepcopy(node.s)
+        s_copy.execute_move(a)
+        child = AZNode(parent=node, a=a, s=s_copy)
+        # Initialize RAVE stats on new child
+        child.N_rave = {}
+        child.W_rave = {}
+        return child
 
     def evaluate(self, leaf: AZNode) -> float:
         """
-        (b) (Expand and) Evaluate.
-        Evaluate the associated position of the leaf node by the neural network
-        and store the vector of P values.
-
-        Parameters
-        ----------
-        leaf : AZNode
-            (leaf) node that corresponds to the MCTS's current position s
-
-        Returns
-        -------
-        v : float
-            probability of the current player winning in position s
+        Query neural network for policy and value on leaf state.
+        Applies random symmetries for data augmentation.
+        Sets leaf.P and returns scalar v.
         """
-
-        # rules are invariant to colour transposition: represent the board from the perspective of the current player
-        canonical_lines = leaf.s.get_canonical_lines()
-        canonical_boxes = leaf.s.get_canonical_boxes()
-
-        # neural network evaluation is carried out on a reflection or rotation which is selected uniformly
+        lines = leaf.s.get_canonical_lines()
+        boxes = leaf.s.get_canonical_boxes()
         i = randint(0, 7)
-        j = i
-        if i == 1:
-            j = 3
-        elif i == 3:
-            j = 1
-
-        lines = DotsAndBoxesGame.get_rotations_and_reflections_lines(canonical_lines)[i]
-        boxes = DotsAndBoxesGame.get_rotations_and_reflections_boxes(canonical_boxes)[i]
-
-        # get prediction, and apply same revert rotation that was applied to lines vector before forwarding to neural network
-        p, v = self.model.p_v(lines, boxes)
-        p = DotsAndBoxesGame.get_rotations_and_reflections_lines(p)[j]
-
-        leaf.P = p
+        j = {1: 3, 3: 1}.get(i, i)
+        rot_l = DotsAndBoxesGame.get_rotations_and_reflections_lines(lines)[i]
+        rot_b = DotsAndBoxesGame.get_rotations_and_reflections_boxes(boxes)[i]
+        p, v = self.model.p_v(rot_l, rot_b)
+        leaf.P = DotsAndBoxesGame.get_rotations_and_reflections_lines(p)[j]
         return v
 
-    def backup(self, node: AZNode, a: int, v: float):
+    def _backup(self, path: list, value: float):
         """
-        (c) Backup.
-        Update action value Q to track the mean of all evaluations v in the subtree below that node, and visit count N.
-
-        Parameters
-        ----------
-        node : AZNode
-            node that corresponds to the MCTS's current position s
-        a : int
-            move that was selected and executed within the current search
-        v : float
-            the resulting score for this node for the current simulation
+        Backpropagate value through visited path nodes, undo virtual loss,
+        update Q and N for each action, and refresh RAVE stats.
         """
-
-        if a not in node.N:
-            # leaf: node was visited for the first time
-            node.Q[a] = v
-            node.N[a] = 1
-
-        else:
-            n = node.N[a]
-            q = node.Q[a]
-            node.Q[a] = (n * q + v) / (n + 1)  # Q = mean of v
-            node.N[a] += 1
-
+        for node, a in reversed(path):
+            # Undo virtual loss
+            node.N[a] -= self.VIRTUAL_LOSS
+            node.W[a] += self.VIRTUAL_LOSS
+            # Update visit count and action value Q
+            prev_n = node.N.get(a, 0)
+            prev_q = node.Q.get(a, 0.0)
+            node.N[a] = prev_n + 1
+            node.Q[a] = (prev_n * prev_q + value) / node.N[a]
+            # RAVE update: all other moves in path
+            for ancestor, move in path:
+                if move != a:
+                    ancestor.N_rave[a] = ancestor.N_rave.get(a, 0) + 1
+                    ancestor.W_rave[a] = ancestor.W_rave.get(a, 0.0) + value
 
     @staticmethod
-    def determine_move(model: AZNeuralNetwork, s: DotsAndBoxesGame, mcts_parameters: dict) -> int:
-
+    def determine_move(
+        model: AZNeuralNetwork,
+        s: DotsAndBoxesGame,
+        mcts_parameters: dict
+    ) -> int:
+        """
+        Convenience to run MCTS and return the best move index.
+        """
         mcts = MCTS(model, s, mcts_parameters)
-        probs = mcts.play(
-            temp=0  # select the move with maximum visit count, to give the strongest possible play
-        )
-        move = np.array(probs).argmax()
-
-        valid_moves = np.where(s.l == 0)[0].tolist()
-        assert move in valid_moves, f"move {move} is not a valid move in {valid_moves}"
-
-        return move
+        pi = mcts.play(temp=0)
+        return int(np.argmax(pi))
