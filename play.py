@@ -37,39 +37,67 @@ def main(size: int, opponent: AIPlayer, AI_First: int):
 
     if(AI_First == 1):
         game.current_player = -1
-    while game.is_running():
+    else:
+        game.current_player = 1
+    while game.is_ensuring():
 
         if game.current_player == 1 or opponent is None:
             # print draw request
-            print("Please enter a free line number: ", end="")
-
             # process draw request
             while True:
-                move = int(input())
-                if move in game.get_valid_moves():
+                move = input("Please enter a free line number: ")
+                if move.isdigit() == False and move != "-1":
+                    print("Line number must be a number.")
+                elif int(move) in game.get_valid_moves() or int(move) == -1:#-1 is used to rollback the game
+                    move = int(move)
                     break
                 print(f"Line {move} is not a valid move. Please select a move in {game.get_valid_moves()}.")
+            
             last_move_by_player = True
 
         else:
             # an AI opponent is at turn
             time.sleep(1.0)
             start_time = time.time()
+            game.push_history()
             move = opponent.determine_move(game)
             stopped_time = time.time() - start_time
             last_move_by_player = False
-
-        game.execute_move(move)
-
-        # print new game state
-        cls()
-        if not last_move_by_player:
-            print("Computation time of opponent for previous move {0:.2f}s".format(stopped_time))
+        if move == -1 :
+            # rollback the game
+            if game.rollback():
+                #cls()
+                print("\nRollback the game successful")                
+                print(game.state_string())
+                print(game.board_string())
+            else:
+                print("Rollback the game failed: No moves to rollback")
         else:
-            print()
-        print(game.state_string())
-        print(game.board_string())
+            
+            game.push_history()
+            game.execute_move(move)
 
+            # print new game state
+            #cls()
+            if not last_move_by_player:
+                print("Computation time of opponent for previous move {0:.2f}s".format(stopped_time))
+            else:
+                print()
+            print(game.state_string())
+            print(game.board_string())
+        if(game.result is not None):
+            result_ensuring = input(f"Do you want to ensure the result? (y/n): {'You wins' if game.result == 1 else ('AI wins' if game.result == -1 else 'Draw')} :")
+            if(result_ensuring.lower() == "y"):
+                game.set_running(False)
+            else:
+                #cls()
+                game.rollback()
+                game.set_running(None)
+                game.set_result(None)
+                print("\nRollback the game successful")                
+                print(game.state_string())
+                print(game.board_string())
+    
 
     if game.result == 1:
         print("The game is over.. You won!")
