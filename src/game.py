@@ -43,7 +43,8 @@ class DotsAndBoxesGame:
         self.SIZE = size
         self.current_player = (1 if randint(0, 1) == 1 else -1) if starting_player is None else starting_player
         self.result = None
-
+        self.running = None
+        self.history = [] #rollback history
         # lines
         self.N_LINES = 2 * size * (size + 1)
         self.l = np.zeros((self.N_LINES,), dtype=np.float32)
@@ -88,6 +89,13 @@ class DotsAndBoxesGame:
     """
     Game Logic.
     """
+    def push_history(self):
+        self.history.append((
+            self.l.copy(), 
+            self.b.copy(), 
+            self.current_player,
+            self.result
+        ))#储存历史状态
     def execute_move(self, line: int):
 
         # execute move means drawing the line
@@ -113,6 +121,7 @@ class DotsAndBoxesGame:
             self.check_finished()
 
     def check_finished(self):
+        #print(self.result)
         assert self.result is None, "result is already set"
 
         # player reached necessary number of captured boxes to win the game
@@ -129,6 +138,25 @@ class DotsAndBoxesGame:
 
     def is_running(self) -> bool:
         return self.result is None
+    def is_ensuring(self) -> int:
+        return self.running is None
+    def set_running(self, running):
+        self.running = running
+    def set_result(self, result: None):
+        self.result = None
+    def rollback(self) -> bool:
+        """撤销上一步操作"""
+        # 出栈恢复状态
+        if not self.history:
+            return False
+        
+        self.l, self.b, self.current_player, self.result = self.history.pop()
+        pl = self.current_player
+        while self.current_player == pl:
+            if not self.history:
+                return False
+            self.l, self.b, self.current_player, self.result = self.history.pop()
+        return True
 
     def get_valid_moves(self) -> List[int]:
         return np.where(self.l == 0)[0].tolist()
