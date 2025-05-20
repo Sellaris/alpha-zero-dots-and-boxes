@@ -61,7 +61,7 @@ if __name__ == '__main__':
 
         # 如果是迁移训练，加载预训练模型配置
         if args.config.endswith('_transfer'):
-            pretrained_config_file = RESOURCES_FOLDER + args.config.replace('_transfer', '') + ".yaml"
+            pretrained_config_file = RESOURCES_FOLDER + args.config + ".yaml"
             with open(pretrained_config_file) as f:
                 pretrained_config = yaml.safe_load(f)
             config['model_parameters'] = pretrained_config['model_parameters']

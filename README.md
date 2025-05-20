@@ -120,7 +120,10 @@ Training (requires a config file) can be started from scratch or continued from 
 ```bash
 python train.py --config 2x2_dual_res --n_workers 4 --inference_device cpu --training_device cuda
 ```
-
+#### Transfer-training from with weight of model 4x4
+```bash
+python train.py --config 5x5_dual_res_transfer --n_workers 6 --inference_device cpu --training_device cuda  --transfer_from 4
+```
 ### Logs
 Running training will create a timestamp-named folder under `logs` including the config, loss and results statistics, trained neural network, and a file with recent training data.
 
@@ -129,7 +132,10 @@ To continue training from checkpoint, specify the name of the corresponding logs
 ```bash
 python train.py --checkpoint alpha_zero_2x2 --n_workers 4 --inference_device cpu --training_device cuda
 ```
-
+####  if checkpoint if transfer-training
+```bash
+python train.py --config 5x5_dual_res_transfer --n_workers 6 --inference_device cpu --training_device cuda --checkpoint transfer_5x5 --transfer_from 4
+```
 ### Config
 We provide the config files that we used (`2x2_dual_res.yaml`, `3x3_dual_res.yaml` and `2x2_dual_res.yaml`). Modify those with respect to your computational power and target board size. If you want to employ a neural network with simpler architecture, have a look at `2x2_feed_forward.yaml`. 
 
