@@ -15,6 +15,7 @@ class AZDualRes(AZNeuralNetwork):
         super(AZDualRes, self).__init__(game_size, inference_device)
 
         img_size = 2 * game_size + 1
+        self.freeze_features = True# if model_parameters["frozen"] == 1 else False # 根据配置决定是否冻结
 
         # use parameter information from config
         blocks_params = model_parameters["blocks"]
@@ -74,6 +75,16 @@ class AZDualRes(AZNeuralNetwork):
         # initialize weights
         self.weight_init()
         self.float()
+
+    def load_checkpoint(self, model_path):
+        # 加载状态字典，忽略不匹配的键
+        state_dict = torch.load(model_path)    
+        # 过滤掉全连接层权重（形状不匹配的层）
+        filtered_state_dict = {
+            k: v for k, v in state_dict.items() 
+            if not any(x in k for x in ['policy_head.fc', 'value_head.fc'])
+        }
+        self.load_state_dict(filtered_state_dict, strict=False)
 
 
     def weight_init(self):
@@ -202,7 +213,12 @@ class PolicyHead(nn.Module):
 
         self.conv = nn.Conv2d(conv_in_channels, conv_out_channels, kernel_size, stride, padding)
         self.bn = nn.BatchNorm2d(conv_out_channels)
-        self.relu = nn.ReLU()
+        self.relu = nn.ReLU()        # 动态计算输入尺寸
+        #with torch.no_grad():
+        #    dummy = torch.zeros(1, 4, self.img_size, self.img_size)  # img_size=2*game_size+1
+        #    dummy = self.conv(dummy)
+        #    dummy = dummy.view(1, -1)
+        #    fc_in_features = dummy.shape[1]
         self.fc = nn.Linear(
             in_features=fc_in_features,
             out_features=fc_out_features
@@ -226,7 +242,12 @@ class ValueHead(nn.Module):
 
         self.conv = nn.Conv2d(conv_in_channels, conv_out_channels, kernel_size, stride, padding)
         self.bn = nn.BatchNorm2d(conv_out_channels)
-        self.relu = nn.ReLU()
+        self.relu = nn.ReLU()        
+        #with torch.no_grad():
+        #    dummy = torch.zeros(1, 4, self.img_size, self.img_size)  # img_size=2*game_size+1
+        #    dummy = self.conv(dummy)
+        #    dummy = dummy.view(1, -1)
+        #    fc_in_features = dummy.shape[1]
         self.tanh = nn.Tanh()
         self.fc1 = nn.Linear(
             in_features=fc_in_features,

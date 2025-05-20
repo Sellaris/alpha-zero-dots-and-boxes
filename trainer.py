@@ -44,7 +44,7 @@ class Trainer:
         waiting for an iteration to complete (AlphaGo Zero)
     """
 
-    def __init__(self, config: dict, n_workers: int, inference_device: str, training_device: str, checkpoint: Checkpoint):
+    def __init__(self, config: dict, n_workers: int, inference_device: str, training_device: str, checkpoint: Checkpoint, pretrained_weights=None):
 
         self.checkpoint = checkpoint
         self.n_workers = n_workers
@@ -67,11 +67,10 @@ class Trainer:
         print(f"\nModel inference device: {self.inference_device}")
         print(f"Model training device: {self.training_device}")
 
-        # initialize models
+        # 初始化模型
         AZModel = None
         if self.model_parameters["name"] == "FeedForward":
             AZModel = AZFeedForward
-            pass
         elif self.model_parameters["name"] == "DualRes":
             AZModel = AZDualRes
 
@@ -80,6 +79,23 @@ class Trainer:
             inference_device=self.inference_device,
             model_parameters=self.model_parameters,
         ).float()
+
+        # 如果提供了预训练权重，则尝试加载
+        if pretrained_weights is not None:
+            print("Loading pre-trained weights...")
+            try:
+                self.model.load_checkpoint(pretrained_weights)
+                if config.get("freeze_features", False) or True:  # 配置中添加freeze_features: True
+                    # 冻结特征提取部分
+                    print("Freezing feature extraction layers...")
+                    for param in self.model.conv_block.parameters():
+                        param.requires_grad = False
+                    for res_block in self.model.residual_blocks:
+                        for param in res_block.parameters():
+                            param.requires_grad = False
+            except Exception as e:
+                print(f"Failed to load pre-trained weights: {e}")
+
 
         print("Model has {0:,} trainable parameters".format(
             sum(p.numel() for p in self.model.parameters() if p.requires_grad)
