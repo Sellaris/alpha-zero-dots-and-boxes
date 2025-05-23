@@ -1,7 +1,7 @@
 import argparse
 import os
 import time
-
+import torch
 from termcolor import colored
 import colorama
 colorama.init()
@@ -151,7 +151,9 @@ if __name__ == '__main__':
             inference_device="cpu",
             model_parameters=config["model_parameters"],
         ).float()
-        model.load_checkpoint(checkpoint.model)
+        # 直接加载完整权重，不再过滤头部
+        state_dict = torch.load(checkpoint.model)
+        model.load_state_dict(state_dict)
 
         opponent = NeuralNetworkPlayer(
             model=model,
