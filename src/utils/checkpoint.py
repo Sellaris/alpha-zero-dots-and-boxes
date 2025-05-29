@@ -11,7 +11,8 @@ class Checkpoint:
 
         self.checkpoint_folder = checkpoint_folder
         os.makedirs(checkpoint_folder, exist_ok=True)
-
+        if checkpoint_folder[-1] !='/':
+            checkpoint_folder += '/' 
         self.config = checkpoint_folder + "config.json"
         self.model = checkpoint_folder + "model.pt"
         self.evaluation_results = checkpoint_folder + "results.json"
