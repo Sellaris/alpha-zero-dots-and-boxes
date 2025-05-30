@@ -10,13 +10,57 @@ from src import DotsAndBoxesPrinter, AlphaBetaPlayer, AIPlayer, RandomPlayer, Ch
 from src.model.dual_res import AZDualRes
 from src.model.feed_forward import AZFeedForward
 from src.players.neural_network import NeuralNetworkPlayer
+import numpy as np
+from src.game import DotsAndBoxesGame
 
+# 定义混合策略类（可直接复制 ai_vs_ai.py 中的实现）
+class MixedPlayer(AIPlayer):
+    def __init__(self, alphazero: NeuralNetworkPlayer, alphabeta4: AlphaBetaPlayer, alphabeta5: AlphaBetaPlayer, alphabeta6: AlphaBetaPlayer):
+        super().__init__("MixedPlayer")
+        self.alphazero = alphazero
+        self.alphabeta4 = alphabeta4
+        self.alphabeta5 = alphabeta5
+        self.alphabeta6 = alphabeta6
+
+    def determine_move(self, game: DotsAndBoxesGame) -> int:
+        moves_played = np.count_nonzero(game.l != 0)
+        total_moves = game.SIZE * (game.SIZE - 1) * 2
+        quarter_moves = total_moves // 4
+
+        if moves_played <= quarter_moves:
+            return self.alphazero.determine_move(game)
+        elif moves_played <= 2 * quarter_moves:
+            return self.alphabeta4.determine_move(game)
+        elif moves_played <= 3 * quarter_moves:
+            return self.alphabeta5.determine_move(game)
+        else:
+            return self.alphabeta6.determine_move(game)
+
+class DepMixedPlayer(AIPlayer):
+    def __init__(self, alphabeta3: AlphaBetaPlayer, alphabeta4: AlphaBetaPlayer, alphabeta5: AlphaBetaPlayer):
+        super().__init__("DepMixedPlayer")
+        self.alphabeta3 = alphabeta3
+        self.alphabeta4 = alphabeta4
+        self.alphabeta5 = alphabeta5
+
+    def determine_move(self, game: DotsAndBoxesGame) -> int:
+        moves_played = np.count_nonzero(game.l != 0)
+        total_moves = game.SIZE * (game.SIZE - 1) * 2
+        third_moves = total_moves // 3
+
+        if moves_played <= third_moves:
+            return self.alphabeta3.determine_move(game)
+        elif moves_played <= 2 * third_moves:
+            return self.alphabeta4.determine_move(game)
+        else:
+            return self.alphabeta5.determine_move(game)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-s', '--size', type=int, default=2,
                     help='Size of the Dots-and-Boxes game (in number of boxes per row and column).')
-parser.add_argument('-o', '--opponent', type=str, default="alpha_beta", choices=["person", "random", "alpha_beta", "alpha_zero"],
-                    help='Type of opponent to play against (in case of AlphaZero, checkpoint needs to be passed too).')
+parser.add_argument('-o', '--opponent', type=str, default="alpha_beta",
+                    choices=["person", "random", "alpha_beta", "alpha_zero", "mixed", "depmix"],
+                    help='Type of opponent to play against.')
 parser.add_argument('-cp', '--checkpoint', type=str,
                     help='In case of AlphaZero as opponent: Model checkpoint (i.e., name of folder containing config and model).')
 parser.add_argument('-d', '--depth', type=int, default=3,
@@ -161,5 +205,45 @@ if __name__ == '__main__':
             mcts_parameters=config["mcts_parameters"],
             device="cpu"
         )
+    elif args.opponent == "mixed":
+        if not args.checkpoint:
+            raise ValueError("必须通过 --checkpoint 指定 AlphaZero 模型路径")
         
+        # 加载 AlphaZero 模型
+        checkpoint_folder = args.checkpoint + "/"
+        if not os.path.exists(checkpoint_folder):
+            raise FileNotFoundError(f"Checkpoint 路径不存在: {checkpoint_folder}")
+        
+        checkpoint = Checkpoint(checkpoint_folder)
+        config = checkpoint.load_config()
+        model = AZDualRes(game_size=game_size, inference_device="cpu", model_parameters=config["model_parameters"])
+        model.load_checkpoint(checkpoint.model)
+        
+        alphazero = NeuralNetworkPlayer(
+            model=model,
+            name="AlphaZero",
+            mcts_parameters=config["mcts_parameters"],
+            device="cpu"
+        )
+        
+        # 创建不同深度的 AlphaBetaPlayer
+        alphabeta4 = AlphaBetaPlayer(depth=4)
+        alphabeta5 = AlphaBetaPlayer(depth=6)
+        alphabeta6 = AlphaBetaPlayer(depth=8)
+        
+        opponent = MixedPlayer(alphazero, alphabeta4, alphabeta5, alphabeta6)
+
+    elif args.opponent == "depmix":
+        # 创建不同深度的 AlphaBetaPlayer
+        alphabeta3 = AlphaBetaPlayer(depth=3)
+        alphabeta4 = AlphaBetaPlayer(depth=4)
+        alphabeta5 = AlphaBetaPlayer(depth=5)
+        opponent = DepMixedPlayer(alphabeta3, alphabeta4, alphabeta5)
     main(game_size, opponent, args.first)
+'''(完整路径checkpoint)
+# 使用 MixedPlayer 作为对手
+python play.py --size 5 --opponent mixed --checkpoint D:\WORK2\回档\base\AlphaZero-for-Dots-and-Boxes-Transfer-Learning\logs\transfer_5x5 
+
+# 使用 DepMixedPlayer 作为对手
+python play.py --size 5 --opponent depmix 
+'''
