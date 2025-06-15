@@ -1,3 +1,6 @@
+#警告：该项目在5X5的棋盘及以上没有获得期望的强度（所有分支）
+#Warning: This project did not achieve the expected strength (all branches) on a 5x5 board or larger.
+
 # AlphaSela：AlphaZero Algorithm for Dots and Boxes
 
 
